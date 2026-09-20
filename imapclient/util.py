@@ -3,6 +3,7 @@
 # Please see http://en.wikipedia.org/wiki/BSD_licenses
 
 import logging
+import math
 from typing import Iterator, Optional, Sequence, Tuple, Union
 
 from . import exceptions
@@ -24,17 +25,36 @@ def to_unicode(s: Union[bytes, str]) -> str:
     return s
 
 
-def to_ints(
-    messages: Union[bytes, str, int, Sequence[Union[bytes, str, int]]],
-) -> Sequence[int]:
-    """Convert a sequence of values (such as messages)
-    or a single integer value into an sequence of ints
-    """
-    if not messages:
-        return []
-    if isinstance(messages, (int, str, bytes)):
-        return [int(messages)]
-    return [int(i) for i in messages]
+class SequenceSet:
+    """Tests membership of one or more sequence sets."""
+    def __init__(self, sequence_sets: Union[bytes, str, int, Sequence[Union[bytes, str, int]]]):
+        if isinstance(sequence_sets, (int, str, bytes)):
+            sequence_sets = (sequence_sets,)
+        self._id_ranges = [id_range for sequence_set in sequence_sets for id_range in SequenceSet._to_ranges(sequence_set)]
+
+    @staticmethod
+    def _to_ranges(sequence_set: Union[bytes, str, int]):
+        if isinstance(sequence_set, int):
+            return [(sequence_set, sequence_set + 1)]
+        return (SequenceSet._to_range(r) for r in to_bytes(sequence_set).split(b','))
+
+    @staticmethod
+    def _to_range(sequence: bytes):
+        first, colon, second = sequence.partition(b':')
+        if first == b'*':
+            raise ValueError("Reverse wildcard ranges are not supported")
+        first = int(first)
+        if colon:
+            if second == b'*':
+                return (first, math.inf)
+            else:
+                second = int(second)
+                return (min(first, second), max(first, second) + 1)
+        else:
+            return (first, first + 1)
+
+    def __contains__(self, message_id: int):
+        return any(lo <= message_id < hi for lo, hi in self._id_ranges)
 
 
 def to_bytes(s: Union[bytes, str], charset: str = "ascii") -> bytes:
